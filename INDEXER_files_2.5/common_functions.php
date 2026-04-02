@@ -63,15 +63,20 @@ function check_ERRORS($mess){
 // На всякий случай, окончательно делаем контроль ошибок
 // *************    КОНТРОЛЬ ОШИБОК    (Начало)*****************************************
          if((error_get_last() != '') || (is_array(error_get_last()) && (error_get_last() != array()) )){
-             print_r(error_get_last());
-             file_put_contents(PATH_FILE_NAMES_ERROR, $mess. PHP_EOL. implode(', ', error_get_last()) .' '. date("d.m.Y - H:m:s"). PHP_EOL , FILE_APPEND);
+             print_r(error_get_last()); // Выводим клиенту, чтобы можно было посмотреть в ответах сервера
+
+             if($mess){ // Это для ошибок, сообщения для которых вручную заданы в той или иной программе
+                file_put_contents(PATH_FILE_NAMES_ERROR, $mess . PHP_EOL , FILE_APPEND);
+             }
+
+             save_ERROR_mes(); // Если была ошибка, сохраняем в файл также системное сообщение о ней в файл-лог ошибок
+
              return '<p class="error_mes">'. $mess. '</p>'. implode(PHP_EOL, error_get_last());
          }else{
              return '';
          }
 // *************    /КОНТРОЛЬ ОШИБОК    (Конец)*****************************************
 }
-
 
 /* 5. Удаление НЕПУСТОГО каталога. РАБОТАЕТ ПЛОХО (может удалить не все каталоги, если их - много). Но, если сделать на итераторах, будет работать еще хуже (очень медленно)  */
 function rrmdir($src, $DO_working_flag_FILE ) {
@@ -145,7 +150,7 @@ function rrmdir($src) {
 
 
 
-/* 6. Функция определяет кодировку файла с перечнем файлов сайта и получает массив, состоящий из имен этих файлов */
+/* 6. Функция определяет кодировку файла с перечнем файлов сайта files.txt и получает массив, состоящий из имен этих файлов */
 function get_files_Arr($enc_Arr){
     $str = file_get_contents(PATH_FILE_NAMES_ALL_FILES);
 
@@ -156,7 +161,7 @@ $ENC_FILE_names_all_files = strtolower(check_enc($str, $enc_Arr));
         file_put_contents(PATH_FILE_NAMES_ERROR, $mess. ' '. date("d.m.Y - H:m:s"). PHP_EOL , FILE_APPEND);
     $mess .= '<p class="error_mes">'. $mess. '</p>';
 
-return array(-1, $mess);
+return array(-1, $mess, null);
     }
 
 $ALL_files_Arr_tmp = explode(PHP_EOL, $str); // Вместо функции file(), т.к. она, вроде бы, работает медленнее
@@ -381,3 +386,69 @@ function save_time_UNIX_MAX($str_UNIX_begin, $time_UNIX_i_MAX, $str_UNIX_end){
 
     file_put_contents(PATH_FILE_NAMES_ALL_FILES, $files);
 }
+
+// 13. Функция РЕГИСТРОНЕЗАВИСИМО проверяет, был ли передан КЛИЕНТУ заголовок (или готовый к отправке) вида $head_before: $header_after
+function was_header($header_before, $header_after){
+// Например:  Content-Type: text/event-stream
+/* Возвращает 0, если такого заголовка нет,
+              1, если такой заголовок есть,
+             -1 в случае ошибки.
+*/
+    if(!$header_before || !$header_after){
+return -1;
+    }
+
+    $header_reg = '~'. preg_quote($header_before). '\s*\:\s*'. preg_quote($header_after). '~i'; // Если вдруг были отправлены заголовки не строго по стандарту
+    $headers_Arr = headers_list();
+
+    $flag_exists = false;
+    for($i=0; $i < sizeof($headers_Arr); $i++){
+
+        $flag_exists = preg_match($header_reg, $headers_Arr[$i]);
+        if($flag_exists === false){
+return -1;
+
+        }elseif($flag_exists){
+return $flag_exists;
+        }
+    }
+
+return $flag_exists;
+}
+
+// 14. Функция сохраняет сообщение о последней ошибке в файл-лог ошибок
+function save_ERROR_mes(){
+    file_put_contents(PATH_FILE_NAMES_ERROR, 'Ошибка - '. date("d.m.Y - H:m:s") . PHP_EOL , FILE_APPEND);
+
+    array_map(function ($el) { // Сохраняем в файл также системное сообщение об ошибке построчно
+        $str_to_out = array_search($el, error_get_last()). ' => '. $el;
+        file_put_contents(PATH_FILE_NAMES_ERROR, $str_to_out. PHP_EOL , FILE_APPEND);
+    }, error_get_last());
+}
+
+
+// 15. После окончания работы в случае ошибки сообщаем об этом (актуально, если будет Fatal error)
+register_shutdown_function(function () {
+// 1. При использовании SSE (событий сервера). Т.е. если был (будет) отправлен заголовок text/event-stream
+    $text_event_stream = was_header('Content-Type', 'text/event-stream');
+
+    if($text_event_stream === 1){
+        require_once __DIR__ . '/sendMsg.php'; // Вывод результатов событий сервера
+        if(check_ERRORS('')){ // Если были ошибки
+            sendMsg(time(), '<p class="error_mes" style="display: block">Ошибка: </p>', false);
+
+            array_map(function ($el) { // Выводим клиенту сообщение об ошибке при использовании SSE
+                $str_to_out = array_search($el, error_get_last()). ' => '. $el;
+                sendMsg(time(), '<p class="error_mes" style="display: block">'. $str_to_out. '</p>', false);
+            }, error_get_last());
+
+        }
+    // Если невозможно определить, работают ли SSE (установлен ли заголовок Content-Type: text/event-stream)
+    }elseif($text_event_stream === -1){
+        save_ERROR_mes();  // Сохраняем в файл также системное сообщение об ошибке в файл-лог ошибок
+        echo 'Ошибка в функции was_header() - '. __FUNCTION__ . ', стр.'. __LINE__ ; // Выводим клиенту хоть какое-то сообщение об ошибке
+    }
+
+});
+
+
