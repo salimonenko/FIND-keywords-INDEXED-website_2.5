@@ -270,16 +270,19 @@ if($fuzzy === '1'){ // Если включен НЕчеткий поиск
 // 2.3. Для каждого искомого слова из массива искомых (кл.) слов запускаем процедуру поиска близких слов (в том числе, с разными окончаниями, если поиск НЕчеткий)
     $words_to_find_Arr = array();
 
+
 $indexes_Arr = array();
+
     for($j=0; $j < sizeof($keywords_Arr); $j++){ // По массиву, содерж. элементы логического выражения (например: слово1&&(слово2||слово3) )
 
+        $words_to_find_Arr[$j] = $keywords_Arr[$j]; // Массив логического выражения (только для показа клиенту)
+
         if(in_array($keywords_Arr[$j], $special_symb_Arr)){ // Пропускаем символы &&  ||  и т.д.
-            $words_to_find_Arr[] = $keywords_Arr[$j];
+
             $indexes_Arr[] = $keywords_Arr[$j];
             continue;
         }
         $word = $keywords_Arr[$j];
-
 
         if($fuzzy === '1'){ // Для НЕчеткого поиска
             // Вызываем для каждого искомого слова, полученного от клиента
@@ -288,6 +291,8 @@ $indexes_Arr = array();
         }else{ // Для обычного поиска
             $keyword_forms_Arr =  array($word); // Будет массив лишь из одного слова (т.к. его формы НЕ ищем)
         }
+
+$words_to_find_Arr[$j] = ' ('. implode(' || ', $keyword_forms_Arr). ') ';
 
 // Получаем множества индексов для каждого ключевого слова
         $keyword_forms_Arr = array_map('translit1', $keyword_forms_Arr); // В транслит, чтобы можно было применить функцию metaphone()
@@ -348,6 +353,11 @@ $indexes_Arr = array();
         sort($indexes_Arr_tmp); // Получен массив уникальных индексов для ВСЕвозможных форм искомого (кл.) слова
 
         $indexes_Arr[$j] = $indexes_Arr_tmp;
+    }
+
+    if($_POST['show_logical'] === '1'){ // Если требуется вывести клиенту поисковое логическое выражение из искомых слов
+        $logical_expression = '<p style="background-color: wheat; display: table-cell; font-size: 90%;">'. implode(' ', $words_to_find_Arr). '</p>';
+        echo $logical_expression; // Выводим  логическое выражение из слов (с учетом разных окончаний, в случае НЕчеткого поиска)
     }
 
     echo '2: '.  (microtime(true) - $t0). '<br>';
